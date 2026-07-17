@@ -1,0 +1,97 @@
+name: Build and Package Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build
+
+      - name: Verify release requirements
+        run: npm run lint
+
+      - name: Read manifest metadata
+        id: meta
+        shell: bash
+        run: |
+          ID=$(node -p "require('./manifest.json').id")
+          VERSION=$(node -p "require('./manifest.json').version")
+          echo "id=${ID}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare package directory
+        run: |
+          mkdir -p dist
+          cp manifest.json dist/
+          cp main.js dist/
+          cp styles.css dist/
+          cp versions.json dist/
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.id }}-${{ steps.meta.outputs.version }}
+          path: dist/
+
+      - name: Create version tag if missing
+        shell: bash
+        run: |
+          VERSION="${{ steps.meta.outputs.version }}"
+          if git ls-remote --tags origin "refs/tags/${VERSION}" | grep -q "refs/tags/${VERSION}$"; then
+            echo "Tag ${VERSION} already exists."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag "${VERSION}"
+            git push origin "${VERSION}"
+          fi
+
+      - name: Generate release notes
+        id: release_notes
+        shell: bash
+        run: |
+          RELEASE_NOTES=$(npm run generate:release-notes 2>/dev/null | tail -n +2)
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$RELEASE_NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            main.js
+            styles.css
+
+      - name: Create or update GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.version }}
+          name: ${{ steps.meta.outputs.version }}
+          body: ${{ steps.release_notes.outputs.notes }}
+          files: |
+            manifest.json
+            main.js
+            styles.css
+          fail_on_unmatched_files: true

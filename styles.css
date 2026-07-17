@@ -1,0 +1,71 @@
+.modal.shared-vault-conflict-modal-window {
+  max-width: min(96vw, 1600px);
+  width: min(96vw, 1600px);
+}
+
+.shared-vault-conflict-modal {
+  min-width: min(92vw, 1400px);
+}
+
+.shared-vault-conflict-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 16px 0;
+}
+
+@media (max-width: 960px) {
+  .modal.shared-vault-conflict-modal-window {
+    max-width: 96vw;
+    width: 96vw;
+  }
+
+  .shared-vault-conflict-modal {
+    min-width: 0;
+  }
+
+  .shared-vault-conflict-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.shared-vault-conflict-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shared-vault-conflict-pane h3 {
+  margin: 0;
+}
+
+.shared-vault-conflict-text {
+  min-height: 360px;
+  resize: vertical;
+  width: 100%;
+  font-family: var(--font-monospace);
+}
+
+.shared-vault-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.shared-vault-node-registry-modal {
+  min-width: min(92vw, 1000px);
+}
+
+.shared-vault-node-registry-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.shared-vault-node-registry-table th,
+.shared-vault-node-registry-table td {
+  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}

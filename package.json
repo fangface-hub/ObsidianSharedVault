@@ -1,0 +1,32 @@
+{
+  "name": "obsidian-shared-vault",
+  "version": "0.1.0",
+  "description": "Serverless conflict-free collaboration layer for Obsidian shared vaults.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs",
+    "check": "tsc --noEmit",
+    "lint": "eslint src/main.ts --max-warnings=0",
+    "lint:fix": "eslint src/main.ts --fix --max-warnings=0",
+    "generate:release-notes": "node scripts/generate-release-notes.mjs",
+    "version:major": "node scripts/bump-major-version.mjs",
+    "version:minor": "node scripts/bump-minor-version.mjs",
+    "version:patch": "node scripts/bump-patch-version.mjs"
+  },
+  "devDependencies": {
+    "@typescript-eslint/parser": "^8.57.2",
+    "@types/diff-match-patch": "latest",
+    "@types/node": "latest",
+    "esbuild": "latest",
+    "eslint": "^9.39.4",
+    "eslint-plugin-obsidianmd": "^0.4.1",
+    "obsidian": "latest",
+    "typescript": "latest"
+  },
+  "dependencies": {
+    "diff-match-patch": "latest",
+    "yjs": "latest"
+  }
+}
