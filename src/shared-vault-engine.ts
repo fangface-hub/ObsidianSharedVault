@@ -37,19 +37,18 @@ export class SharedVaultEngine {
     return normalizePath(`${plugin.app.vault.configDir}/cache/${vaultId}/${nodeId}`);
   }
 
-  static getCacheRoot(plugin: SharedVaultPlugin, vaultId: string, nodeId: string, userId: string): string {
-    return normalizePath(`${SharedVaultEngine.getNodeCacheRoot(plugin, vaultId, nodeId)}/${userId}`);
+  static getCacheRoot(plugin: SharedVaultPlugin, vaultId: string, nodeId: string): string {
+    return SharedVaultEngine.getNodeCacheRoot(plugin, vaultId, nodeId);
   }
 
   constructor(
     private readonly plugin: SharedVaultPlugin,
     private readonly vaultId: string,
     private readonly nodeId: string,
-    private readonly userId: string,
     operationCacheDir: string,
     snapshotDir: string
   ) {
-    this.cacheRoot = SharedVaultEngine.getCacheRoot(this.plugin, this.vaultId, this.nodeId, this.userId);
+    this.cacheRoot = SharedVaultEngine.getCacheRoot(this.plugin, this.vaultId, this.nodeId);
     this.docRoot = normalizePath(`${this.cacheRoot}/docs`);
     this.statePath = normalizePath(`${this.cacheRoot}/state.json`);
     this.operationCacheDir = normalizePath(operationCacheDir);
@@ -80,7 +79,6 @@ export class SharedVaultEngine {
       const operationFile: OperationFile = {
         id: this.createOperationId(),
         node: this.nodeId,
-        user: this.userId,
         timestamp: Date.now(),
         ops: [
           {
@@ -150,7 +148,6 @@ export class SharedVaultEngine {
     const operationFile: OperationFile = {
       id: this.createOperationId(),
       node: this.nodeId,
-      user: this.userId,
       timestamp: Date.now(),
       ops: [
         {
@@ -238,7 +235,6 @@ export class SharedVaultEngine {
       id: snapshotId,
       createdAt: Date.now(),
       node: this.nodeId,
-      user: this.userId,
       documents
     };
 
@@ -275,7 +271,6 @@ export class SharedVaultEngine {
         path: operation.path,
         currentText: seedContent,
         incomingText: updatedText,
-        remoteUserId: operationFile.user,
         remoteNodeId: operationFile.node
       });
 
@@ -304,7 +299,6 @@ export class SharedVaultEngine {
     path: string;
     currentText: string;
     incomingText: string;
-    remoteUserId: string;
     remoteNodeId: string;
   }): Promise<ConflictResolution> {
     return new Promise<ConflictResolution>((resolve) => {

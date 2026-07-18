@@ -12,7 +12,6 @@ export class SharedVaultConflictModal extends Modal {
       path: string;
       currentText: string;
       incomingText: string;
-      remoteUserId: string;
       remoteNodeId: string;
     },
     private readonly onResolve: (value: ConflictResolution) => void
@@ -28,7 +27,7 @@ export class SharedVaultConflictModal extends Modal {
     contentEl.addClass("shared-vault-conflict-modal");
 
     contentEl.createEl("p", {
-      text: `Incoming changes from ${this.input.remoteUserId} (${this.input.remoteNodeId}) conflict with your current markdown. Review both versions before continuing.`
+      text: `Incoming changes from node ${this.input.remoteNodeId} conflict with your current markdown. Review both versions before continuing.`
     });
 
     const compareGrid = contentEl.createDiv({ cls: "shared-vault-conflict-grid" });
@@ -107,7 +106,7 @@ export class SharedVaultNodeRegistryModal extends Modal {
 
     const table = this.contentEl.createEl("table", { cls: "shared-vault-node-registry-table" });
     const header = table.createTHead().insertRow();
-    ["Node", "User", "Status", "Last seen", "Last sync", "Last operation"].forEach((label) => {
+    ["Node", "Status", "Last seen", "Last sync", "Last operation"].forEach((label) => {
       header.createEl("th", { text: label });
     });
 
@@ -117,7 +116,6 @@ export class SharedVaultNodeRegistryModal extends Modal {
       const active = now - entry.lastSeen <= ttlMs;
 
       row.createEl("td", { text: entry.nodeId });
-      row.createEl("td", { text: entry.userId });
       row.createEl("td", { text: active ? "Active" : "Expired" });
       row.createEl("td", { text: this.formatTimestamp(entry.lastSeen) });
       row.createEl("td", { text: this.formatTimestamp(entry.lastSyncAt) });

@@ -1,5 +1,4 @@
 export interface SharedVaultSettings {
-  userId: string;
   autoSyncIntervalSec: number;
   cacheTtlDays: number;
   operationCacheDir: string;
@@ -31,7 +30,6 @@ export interface YjsOperation {
 export interface OperationFile {
   id: string;
   node: string;
-  user: string;
   timestamp: number;
   ops: YjsOperation[];
 }
@@ -40,13 +38,11 @@ export interface SnapshotFile {
   id: string;
   createdAt: number;
   node: string;
-  user: string;
   documents: CachedDocument[];
 }
 
 export interface NodeRegistryEntry {
   nodeId: string;
-  userId: string;
   vaultId: string;
   lastSeen: number;
   lastLocalEditAt?: number;

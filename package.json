@@ -1,6 +1,6 @@
 {
   "name": "obsidian-shared-vault",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Serverless conflict-free collaboration layer for Obsidian shared vaults.",
   "private": true,
   "type": "module",

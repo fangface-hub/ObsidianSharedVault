@@ -28,7 +28,6 @@ export default class SharedVaultPlugin extends Plugin {
 
     this.data = await this.loadPluginData();
     this.settings = {
-      userId: this.data.userId,
       autoSyncIntervalSec: this.data.autoSyncIntervalSec,
       cacheTtlDays: this.data.cacheTtlDays,
       operationCacheDir: this.data.operationCacheDir,
@@ -36,8 +35,9 @@ export default class SharedVaultPlugin extends Plugin {
     };
 
     await this.migrateLegacySharedStorage();
+    await this.migrateLegacyUserScopedCache();
 
-    this.engine = this.createEngine(this.settings.userId);
+    this.engine = this.createEngine();
 
     await this.engine.initialize();
     await this.evictExpiredNodes();
@@ -93,22 +93,11 @@ export default class SharedVaultPlugin extends Plugin {
   }
 
   async saveSettings(): Promise<void> {
-    const previousUserId = this.data.userId;
-    const nextUserId = this.settings.userId.trim() || DEFAULT_SETTINGS.userId;
-
-    this.settings.userId = nextUserId;
     this.data = {
       ...this.data,
-      ...this.settings,
-      userId: nextUserId
+      ...this.settings
     };
     await this.saveLocalPluginData(this.data);
-
-    if (previousUserId !== nextUserId) {
-      await this.migrateUserCache(previousUserId, nextUserId);
-      this.engine = this.createEngine(nextUserId);
-      await this.engine.initialize();
-    }
   }
 
   private async handleLocalModify(file: TFile): Promise<void> {
@@ -139,7 +128,6 @@ export default class SharedVaultPlugin extends Plugin {
       ...DEFAULT_SETTINGS,
       ...raw,
       nodeId,
-      userId: raw?.userId?.trim() || DEFAULT_SETTINGS.userId,
       autoSyncIntervalSec: raw?.autoSyncIntervalSec ?? DEFAULT_SETTINGS.autoSyncIntervalSec,
       cacheTtlDays: raw?.cacheTtlDays ?? DEFAULT_SETTINGS.cacheTtlDays,
       operationCacheDir: this.resolveSharedStoragePath(raw?.operationCacheDir, this.getOperationCacheDir(), LEGACY_OPERATION_CACHE_DIR),
@@ -232,33 +220,57 @@ export default class SharedVaultPlugin extends Plugin {
     return index > 0 ? normalized.slice(0, index) : this.app.vault.configDir;
   }
 
-  private createEngine(userId: string): SharedVaultEngine {
+  private createEngine(): SharedVaultEngine {
     return new SharedVaultEngine(
       this,
       this.vaultId,
       this.data.nodeId,
-      userId,
       this.settings.operationCacheDir,
       this.settings.snapshotDir
     );
   }
 
-  private async migrateUserCache(previousUserId: string, nextUserId: string): Promise<void> {
-    if (!previousUserId || previousUserId === nextUserId) {
-      return;
-    }
-
+  private async migrateLegacyUserScopedCache(): Promise<void> {
     const adapter = this.app.vault.adapter;
-    const oldCacheRoot = SharedVaultEngine.getCacheRoot(this, this.vaultId, this.data.nodeId, previousUserId);
-    const newCacheRoot = SharedVaultEngine.getCacheRoot(this, this.vaultId, this.data.nodeId, nextUserId);
-
-    if (!(await adapter.exists(oldCacheRoot)) || await adapter.exists(newCacheRoot)) {
+    const nodeCacheRoot = SharedVaultEngine.getNodeCacheRoot(this, this.vaultId, this.data.nodeId);
+    if (!(await adapter.exists(nodeCacheRoot))) {
       return;
     }
 
-    await safeMkdir(this, SharedVaultEngine.getNodeCacheRoot(this, this.vaultId, this.data.nodeId));
-    await adapter.rename(oldCacheRoot, newCacheRoot);
-    new Notice("Moved local shared cache to the new user ID.");
+    const modernStatePath = normalizePath(`${nodeCacheRoot}/state.json`);
+    const modernDocRoot = normalizePath(`${nodeCacheRoot}/docs`);
+    if (await adapter.exists(modernStatePath) || await adapter.exists(modernDocRoot)) {
+      return;
+    }
+
+    const listed = await adapter.list(nodeCacheRoot);
+    const legacyRoots = listed.folders.sort();
+
+    for (const legacyRoot of legacyRoots) {
+      const legacyStatePath = normalizePath(`${legacyRoot}/state.json`);
+      const legacyDocRoot = normalizePath(`${legacyRoot}/docs`);
+      const hasLegacyState = await adapter.exists(legacyStatePath);
+      const hasLegacyDocs = await adapter.exists(legacyDocRoot);
+
+      if (!hasLegacyState && !hasLegacyDocs) {
+        continue;
+      }
+
+      if (hasLegacyState && !(await adapter.exists(modernStatePath))) {
+        await adapter.rename(legacyStatePath, modernStatePath);
+      }
+
+      if (hasLegacyDocs && !(await adapter.exists(modernDocRoot))) {
+        await adapter.rename(legacyDocRoot, modernDocRoot);
+      }
+
+      const rest = await adapter.list(legacyRoot);
+      if (rest.files.length === 0 && rest.folders.length === 0) {
+        await adapter.rmdir(legacyRoot, false);
+      }
+
+      return;
+    }
   }
 
   private async prepareNodeParticipation(): Promise<void> {
@@ -299,7 +311,7 @@ export default class SharedVaultPlugin extends Plugin {
       await this.app.vault.adapter.remove(path);
 
       if (entry.nodeId === this.data.nodeId) {
-        await this.removeNodeCache(entry.userId);
+        await this.removeNodeCache(entry.nodeId);
       }
     }
   }
@@ -308,7 +320,6 @@ export default class SharedVaultPlugin extends Plugin {
     const existingEntry = await this.readCurrentNodeRegistryEntry();
     const defaultEntry: NodeRegistryEntry = {
       nodeId: this.data.nodeId,
-      userId: this.settings.userId,
       vaultId: this.vaultId,
       lastSeen: Date.now()
     };
@@ -316,7 +327,6 @@ export default class SharedVaultPlugin extends Plugin {
     const entry: NodeRegistryEntry = {
       ...defaultEntry,
       ...existingEntry,
-      userId: this.settings.userId,
       ...patch
     };
 
@@ -350,8 +360,8 @@ export default class SharedVaultPlugin extends Plugin {
     return normalizePath(`${this.getNodeRegistryDir()}/${nodeId}.json`);
   }
 
-  private async removeNodeCache(userId: string): Promise<void> {
-    const cacheRoot = SharedVaultEngine.getCacheRoot(this, this.vaultId, this.data.nodeId, userId);
+  private async removeNodeCache(nodeId: string): Promise<void> {
+    const cacheRoot = SharedVaultEngine.getCacheRoot(this, this.vaultId, nodeId);
     if (!(await this.app.vault.adapter.exists(cacheRoot))) {
       return;
     }

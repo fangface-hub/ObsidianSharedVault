@@ -16,18 +16,6 @@ export class SharedVaultSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     new Setting(containerEl)
-      .setName("User ID")
-      .setDesc("Identifier written to shared operation metadata.")
-      .addText((text) => {
-        text
-          .setPlaceholder("Shared user")
-          .setValue(this.getDraftSettings().userId)
-          .onChange((value) => {
-            this.getDraftSettings().userId = value.trim() || DEFAULT_SETTINGS.userId;
-          });
-      });
-
-    new Setting(containerEl)
       .setName("Auto sync interval")
       .setDesc("Interval in seconds for rescanning operation-cache.")
       .addText((text) => {
@@ -73,17 +61,6 @@ export class SharedVaultSettingTab extends PluginSettingTab {
   getSettingDefinitions(): SettingDefinitionItem<SharedVaultSettingKey>[] {
     return [
       {
-        name: "User ID",
-        desc: "Identifier written to shared operation metadata.",
-        control: {
-          type: "text",
-          key: "userId",
-          placeholder: "Shared user",
-          defaultValue: DEFAULT_SETTINGS.userId,
-          validate: (value) => value.trim().length > 0 ? undefined : "User ID is required."
-        }
-      },
-      {
         name: "Auto sync interval",
         desc: "Interval in seconds for rescanning operation-cache.",
         control: {
@@ -115,11 +92,6 @@ export class SharedVaultSettingTab extends PluginSettingTab {
   }
 
   override setControlValue(key: SharedVaultSettingKey, value: unknown): void | Promise<void> {
-    if (key === "userId") {
-      this.getDraftSettings().userId = String(value).trim() || DEFAULT_SETTINGS.userId;
-      return undefined;
-    }
-
     if (key === "autoSyncIntervalSec") {
       const numericValue = typeof value === "number" ? value : Number(value);
       this.getDraftSettings().autoSyncIntervalSec = Number.isFinite(numericValue) && numericValue > 0
@@ -145,8 +117,7 @@ export class SharedVaultSettingTab extends PluginSettingTab {
   }
 
   private areSettingsEqual(left: SharedVaultSettings, right: SharedVaultSettings): boolean {
-    return left.userId === right.userId
-      && left.autoSyncIntervalSec === right.autoSyncIntervalSec
+    return left.autoSyncIntervalSec === right.autoSyncIntervalSec
       && left.cacheTtlDays === right.cacheTtlDays
       && left.operationCacheDir === right.operationCacheDir
       && left.snapshotDir === right.snapshotDir;

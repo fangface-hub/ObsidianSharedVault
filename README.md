@@ -27,6 +27,13 @@ SharedVault is a serverless, conflict-free collaboration layer for Obsidian. It 
 - Rebuild local crdt cache: Recreates local CRDT cache from current markdown files.
 - Create shared crdt snapshot: Writes a shared snapshot file under .obsidian/shared-vault/snapshots/.
 
+### Settings
+
+- Auto sync interval (seconds): Polling interval used to scan .obsidian/shared-vault/operation-cache/.
+- Cache ttl days: Expiration window for inactive node registry entries.
+
+User ID is not configurable. The plugin uses the per-device node ID as the collaboration identity.
+
 ## Development
 
 1. Install dependencies
