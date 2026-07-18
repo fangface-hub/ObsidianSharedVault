@@ -1,9 +1,9 @@
 {
   "id": "shared-vault",
   "name": "Shared Vault",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.5.0",
-  "description": "Serverless, conflict-free collaboration layer for Obsidian shared vaults.",
+  "description": "Serverless, conflict-free collaboration layer for shared vaults.",
   "author": "fangface",
   "authorUrl": "https://github.com/fangface-hub",
   "isDesktopOnly": true

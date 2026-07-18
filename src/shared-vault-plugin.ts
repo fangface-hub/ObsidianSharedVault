@@ -6,8 +6,6 @@ import { SharedVaultSettingTab } from "./shared-vault-settings-tab";
 import type { NodeListEntry, NodeRegistryEntry, OperationFile, SharedVaultData, SharedVaultSettings } from "./shared-vault-types";
 import { hashText, safeMkdir } from "./shared-vault-utils";
 
-const LOCAL_DATA_KEY_PREFIX = "shared-vault:data";
-
 export default class SharedVaultPlugin extends Plugin {
   settings: SharedVaultSettings = DEFAULT_SETTINGS;
   data!: SharedVaultData;
@@ -97,7 +95,7 @@ export default class SharedVaultPlugin extends Plugin {
       ...this.settings,
       userId: nextUserId
     };
-    this.saveLocalPluginData(this.data);
+    await this.saveLocalPluginData(this.data);
 
     if (previousUserId !== nextUserId) {
       await this.migrateUserCache(previousUserId, nextUserId);
@@ -122,7 +120,7 @@ export default class SharedVaultPlugin extends Plugin {
   }
 
   private async loadPluginData(): Promise<SharedVaultData> {
-    const localRaw = this.loadLocalPluginData();
+    const localRaw = await this.loadLocalPluginData();
     const sharedRaw = (await this.loadData()) as Partial<SharedVaultData> | null;
     const raw = {
       ...sharedRaw,
@@ -142,31 +140,37 @@ export default class SharedVaultPlugin extends Plugin {
     };
 
     if (!localRaw) {
-      this.saveLocalPluginData(data);
+      await this.saveLocalPluginData(data);
     }
 
     return data;
   }
 
-  private loadLocalPluginData(): Partial<SharedVaultData> | null {
-    const raw = window.localStorage.getItem(this.getLocalDataKey());
-    if (!raw) {
+  private async loadLocalPluginData(): Promise<Partial<SharedVaultData> | null> {
+    const path = this.getLocalDataPath();
+    if (!(await this.app.vault.adapter.exists(path))) {
       return null;
     }
 
     try {
+      const raw = await this.app.vault.adapter.read(path);
       return JSON.parse(raw) as Partial<SharedVaultData>;
     } catch {
       return null;
     }
   }
 
-  private saveLocalPluginData(data: SharedVaultData): void {
-    window.localStorage.setItem(this.getLocalDataKey(), JSON.stringify(data));
+  private async saveLocalPluginData(data: SharedVaultData): Promise<void> {
+    await safeMkdir(this, this.getLocalDataDir());
+    await this.app.vault.adapter.write(this.getLocalDataPath(), JSON.stringify(data, null, 2));
   }
 
-  private getLocalDataKey(): string {
-    return `${LOCAL_DATA_KEY_PREFIX}:${this.manifest.id}:${this.vaultId}`;
+  private getLocalDataDir(): string {
+    return normalizePath(`${this.app.vault.configDir}/cache/${this.vaultId}`);
+  }
+
+  private getLocalDataPath(): string {
+    return normalizePath(`${this.getLocalDataDir()}/local-plugin-data.json`);
   }
 
   private createEngine(userId: string): SharedVaultEngine {
