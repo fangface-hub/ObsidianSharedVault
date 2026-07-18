@@ -1,5 +1,12 @@
 import { Notice, Plugin, TFile, normalizePath } from "obsidian";
-import { DAY_IN_MS, DEFAULT_SETTINGS, NODE_REGISTRY_DIR } from "./shared-vault-config";
+import {
+    DAY_IN_MS,
+    DEFAULT_SETTINGS,
+    LEGACY_NODE_REGISTRY_DIR,
+    LEGACY_OPERATION_CACHE_DIR,
+    LEGACY_SNAPSHOT_DIR,
+    SHARED_VAULT_STORAGE_RELATIVE_DIR
+} from "./shared-vault-config";
 import { SharedVaultEngine } from "./shared-vault-engine";
 import { SharedVaultNodeRegistryModal } from "./shared-vault-modals";
 import { SharedVaultSettingTab } from "./shared-vault-settings-tab";
@@ -28,12 +35,12 @@ export default class SharedVaultPlugin extends Plugin {
       snapshotDir: this.data.snapshotDir
     };
 
+    await this.migrateLegacySharedStorage();
+
     this.engine = this.createEngine(this.settings.userId);
 
     await this.engine.initialize();
-    await this.ensureNodeRegistryDir();
     await this.evictExpiredNodes();
-    await this.registerCurrentNode({ lastSeen: Date.now() });
     await this.pruneOperationCache();
 
     this.registerEvent(
@@ -135,8 +142,8 @@ export default class SharedVaultPlugin extends Plugin {
       userId: raw?.userId?.trim() || DEFAULT_SETTINGS.userId,
       autoSyncIntervalSec: raw?.autoSyncIntervalSec ?? DEFAULT_SETTINGS.autoSyncIntervalSec,
       cacheTtlDays: raw?.cacheTtlDays ?? DEFAULT_SETTINGS.cacheTtlDays,
-      operationCacheDir: raw?.operationCacheDir ?? DEFAULT_SETTINGS.operationCacheDir,
-      snapshotDir: raw?.snapshotDir ?? DEFAULT_SETTINGS.snapshotDir
+      operationCacheDir: this.resolveSharedStoragePath(raw?.operationCacheDir, this.getOperationCacheDir(), LEGACY_OPERATION_CACHE_DIR),
+      snapshotDir: this.resolveSharedStoragePath(raw?.snapshotDir, this.getSnapshotDir(), LEGACY_SNAPSHOT_DIR)
     };
 
     if (!localRaw) {
@@ -171,6 +178,58 @@ export default class SharedVaultPlugin extends Plugin {
 
   private getLocalDataPath(): string {
     return normalizePath(`${this.getLocalDataDir()}/local-plugin-data.json`);
+  }
+
+  private getSharedVaultStorageDir(): string {
+    return normalizePath(`${this.app.vault.configDir}/${SHARED_VAULT_STORAGE_RELATIVE_DIR}`);
+  }
+
+  private getOperationCacheDir(): string {
+    return normalizePath(`${this.getSharedVaultStorageDir()}/operation-cache`);
+  }
+
+  private getSnapshotDir(): string {
+    return normalizePath(`${this.getSharedVaultStorageDir()}/snapshots`);
+  }
+
+  private getNodeRegistryDir(): string {
+    return normalizePath(`${this.getSharedVaultStorageDir()}/node-registry`);
+  }
+
+  private resolveSharedStoragePath(rawPath: string | undefined, defaultPath: string, legacyDefaultPath: string): string {
+    const value = rawPath?.trim();
+    if (!value) {
+      return defaultPath;
+    }
+
+    const normalized = normalizePath(value);
+    return normalized === legacyDefaultPath ? defaultPath : normalized;
+  }
+
+  private async migrateLegacySharedStorage(): Promise<void> {
+    await this.migrateLegacySharedDir(LEGACY_NODE_REGISTRY_DIR, this.getNodeRegistryDir());
+    await this.migrateLegacySharedDir(LEGACY_OPERATION_CACHE_DIR, this.settings.operationCacheDir);
+    await this.migrateLegacySharedDir(LEGACY_SNAPSHOT_DIR, this.settings.snapshotDir);
+  }
+
+  private async migrateLegacySharedDir(oldPath: string, newPath: string): Promise<void> {
+    const adapter = this.app.vault.adapter;
+    if (!(await adapter.exists(oldPath))) {
+      return;
+    }
+
+    if (await adapter.exists(newPath)) {
+      return;
+    }
+
+    await safeMkdir(this, this.getParentDir(newPath));
+    await adapter.rename(oldPath, newPath);
+  }
+
+  private getParentDir(path: string): string {
+    const normalized = normalizePath(path);
+    const index = normalized.lastIndexOf("/");
+    return index > 0 ? normalized.slice(0, index) : this.app.vault.configDir;
   }
 
   private createEngine(userId: string): SharedVaultEngine {
@@ -212,7 +271,7 @@ export default class SharedVaultPlugin extends Plugin {
   }
 
   private async ensureNodeRegistryDir(): Promise<void> {
-    await safeMkdir(this, NODE_REGISTRY_DIR);
+    await safeMkdir(this, this.getNodeRegistryDir());
   }
 
   private async evictExpiredNodes(): Promise<void> {
@@ -221,7 +280,12 @@ export default class SharedVaultPlugin extends Plugin {
       return;
     }
 
-    const listed = await this.app.vault.adapter.list(NODE_REGISTRY_DIR);
+    const nodeRegistryDir = this.getNodeRegistryDir();
+    if (!(await this.app.vault.adapter.exists(nodeRegistryDir))) {
+      return;
+    }
+
+    const listed = await this.app.vault.adapter.list(nodeRegistryDir);
     const now = Date.now();
 
     for (const path of listed.files.filter((filePath) => filePath.endsWith(".json"))) {
@@ -283,7 +347,7 @@ export default class SharedVaultPlugin extends Plugin {
   }
 
   private getNodeRegistryPath(nodeId: string): string {
-    return normalizePath(`${NODE_REGISTRY_DIR}/${nodeId}.json`);
+    return normalizePath(`${this.getNodeRegistryDir()}/${nodeId}.json`);
   }
 
   private async removeNodeCache(userId: string): Promise<void> {
@@ -296,14 +360,18 @@ export default class SharedVaultPlugin extends Plugin {
   }
 
   private async showNodeRegistryModal(): Promise<void> {
-    await this.ensureNodeRegistryDir();
     const entries = await this.listNodeRegistryEntries();
     const modal = new SharedVaultNodeRegistryModal(this, entries, this.settings.cacheTtlDays);
     modal.open();
   }
 
   private async listNodeRegistryEntries(): Promise<NodeListEntry[]> {
-    const listed = await this.app.vault.adapter.list(NODE_REGISTRY_DIR);
+    const nodeRegistryDir = this.getNodeRegistryDir();
+    if (!(await this.app.vault.adapter.exists(nodeRegistryDir))) {
+      return [];
+    }
+
+    const listed = await this.app.vault.adapter.list(nodeRegistryDir);
     const entries: NodeListEntry[] = [];
 
     for (const path of listed.files.filter((filePath) => filePath.endsWith(".json")).sort()) {
@@ -319,6 +387,10 @@ export default class SharedVaultPlugin extends Plugin {
   }
 
   private async pruneOperationCache(): Promise<void> {
+    if (!(await this.app.vault.adapter.exists(this.settings.operationCacheDir))) {
+      return;
+    }
+
     const listed = await this.app.vault.adapter.list(this.settings.operationCacheDir);
     const activeEntries = (await this.listNodeRegistryEntries()).filter((entry) => this.isActiveNodeEntry(entry));
 

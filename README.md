@@ -1,28 +1,17 @@
 # ObsidianSharedVault
 
-SharedVault is a serverless, conflict-free collaboration layer for Obsidian. It stores Yjs-compatible operation files inside the vault, keeps local CRDT cache state under .obsidian/cache/{vault-id}/{node-id}/{user-id}/, and applies remote changes later without a dedicated server.
+SharedVault is a serverless, conflict-free collaboration layer for Obsidian. It stores Yjs-compatible operation files inside the vault, keeps local CRDT cache state under .obsidian/cache/{vault-id}/{node-id}/, and applies remote changes later without a dedicated server.
 
 ## Current implementation
 
-- Shared operation log in operation-cache/
-- Shared node registry in node-registry/
-- Shared snapshots in snapshots/
+- Shared operation log in .obsidian/shared-vault/operation-cache/
+- Shared node registry in .obsidian/shared-vault/node-registry/
+- Shared snapshots in .obsidian/shared-vault/snapshots/
 - Non-shared local CRDT cache in .obsidian/cache/
 - Manual sync command and background polling sync
 - Per-device node ID persisted in plugin data
 - A node joins the registry only after it makes a local change
 - Expired nodes are evicted on the next local change based on the configured cache TTL
-
-## Settings
-
-Configure these options in the plugin settings:
-
-- User ID: Identifier written to shared operation metadata.
-- User ID default: Your OS login name.
-- User ID change: Local cache is moved to the new user path when possible.
-- Auto sync interval: Polling interval (seconds) used to scan operation-cache/.
-- Cache ttl days: Expiration period for inactive node-registry entries.
-- Cache ttl eviction timing: Expired nodes are evicted when a node makes its next local edit.
 
 ## How to use
 
@@ -33,10 +22,10 @@ Configure these options in the plugin settings:
 
 ### Commands
 
-- Apply pending shared operations: Manually imports unapplied operations from operation-cache/.
+- Apply pending shared operations: Manually imports unapplied operations from .obsidian/shared-vault/operation-cache/.
 - Show shared node registry: Displays active/expired participant nodes and last sync metadata.
 - Rebuild local crdt cache: Recreates local CRDT cache from current markdown files.
-- Create shared crdt snapshot: Writes a shared snapshot file under snapshots/.
+- Create shared crdt snapshot: Writes a shared snapshot file under .obsidian/shared-vault/snapshots/.
 
 ## Development
 
@@ -134,15 +123,16 @@ The workflow will:
 
 ```text
 Vault/
-    operation-cache/
-        *.json
-    node-registry/
-        *.json
-    snapshots/
-        *.snapshot.json
     .obsidian/
+        shared-vault/
+            operation-cache/
+                *.json
+            node-registry/
+                *.json
+            snapshots/
+                *.snapshot.json
         cache/
-            {vault-id}/{node-id}/{user-id}/
+            {vault-id}/{node-id}/
 ```
 
 ## Notes
@@ -150,7 +140,7 @@ Vault/
 - This collaboration model assumes all collaborators who edit the shared vault have this plugin installed and enabled.
 - For stable behavior, collaborators should use the same plugin version whenever possible.
 - This implementation assumes the markdown files themselves are already synchronized by the underlying shared storage.
-- The plugin currently records Yjs incremental updates derived from markdown diffs and replays them by scanning operation-cache/.
+- The plugin currently records Yjs incremental updates derived from markdown diffs and replays them by scanning .obsidian/shared-vault/operation-cache/.
 - If the local CRDT cache is missing, the plugin seeds it from the current markdown file contents instead of emitting a bootstrap operation.
-- Viewing only does not register the node in the shared registry. The node joins node-registry/ when it makes a local edit.
+- Viewing only does not register the node in the shared registry. The node joins .obsidian/shared-vault/node-registry/ when it makes a local edit.
 - Cache expiration is configured in days. When a local edit occurs, expired registry entries are removed before the editing node re-registers itself.

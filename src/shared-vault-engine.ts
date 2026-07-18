@@ -57,8 +57,7 @@ export class SharedVaultEngine {
   }
 
   async initialize(): Promise<void> {
-    await safeMkdir(this.plugin, this.operationCacheDir);
-    await safeMkdir(this.plugin, this.snapshotDir);
+    // Shared directories are created lazily on first write.
   }
 
   async handleLocalModify(file: TFile): Promise<void> {
@@ -167,6 +166,13 @@ export class SharedVaultEngine {
   }
 
   async applyPendingOps(): Promise<ApplyPendingOpsResult> {
+    if (!(await this.plugin.app.vault.adapter.exists(this.operationCacheDir))) {
+      return {
+        appliedCount: 0,
+        lastAppliedOperationId: null
+      };
+    }
+
     const processed = new Set((await this.readState()).processedOpIds);
     const listed = await this.plugin.app.vault.adapter.list(this.operationCacheDir);
     const files = listed.files.filter((path) => path.endsWith(".json")).sort();
@@ -236,6 +242,7 @@ export class SharedVaultEngine {
       documents
     };
 
+    await safeMkdir(this.plugin, this.snapshotDir);
     const snapshotPath = normalizePath(`${this.snapshotDir}/${snapshotId}.snapshot.json`);
     await this.plugin.app.vault.adapter.write(snapshotPath, JSON.stringify(snapshot, null, 2));
     return snapshotPath;
@@ -418,6 +425,7 @@ export class SharedVaultEngine {
   }
 
   private async writeOperationFile(operationFile: OperationFile): Promise<void> {
+    await safeMkdir(this.plugin, this.operationCacheDir);
     const path = normalizePath(`${this.operationCacheDir}/${operationFile.id}.json`);
     await this.plugin.app.vault.adapter.write(path, JSON.stringify(operationFile, null, 2));
   }
