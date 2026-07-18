@@ -2,6 +2,38 @@
 
 SharedVault is a serverless, conflict-free collaboration layer for Obsidian. It stores Yjs-compatible operation files inside the vault, keeps local CRDT cache state under .obsidian/cache/{vault-id}/{node-id}/, and applies remote changes later without a dedicated server.
 
+```mermaid
+flowchart LR
+    subgraph Node["Each device node"]
+        Editor["Markdown files in vault"]
+        Cache["Local CRDT cache\n.obsidian/cache/{vault-id}/{node-id}/docs"]
+        State["Processed state\n.obsidian/cache/{vault-id}/{node-id}/state.json"]
+        LocalData["Local plugin data\n.obsidian/cache/{vault-id}/local-plugin-data.json"]
+    end
+
+    subgraph Shared["Shared vault storage"]
+        Ops["Operation cache\n.obsidian/shared-vault/operation-cache/"]
+        Registry["Node registry\n.obsidian/shared-vault/node-registry/"]
+        Snapshots["Snapshots\n.obsidian/shared-vault/snapshots/"]
+    end
+
+    Editor -->|local diff| Cache
+    Cache -->|Yjs update files| Ops
+    Ops -->|poll and apply| Cache
+    Cache -->|write merged markdown| Editor
+    Cache --> State
+    LocalData -->|persist nodeId| Cache
+    Editor -->|first local edit / heartbeat| Registry
+    Cache -->|snapshot export| Snapshots
+```
+
+> __An image of editing this README.md on my own node and viewing it from another node__
+
+![An image of editing this README.md on my own node and viewing it from another nod](./Screenshot.gif)
+
+> [!NOTE]
+> The mouse cursor on the other node is positioned at the bottom‑right, showing that it is reflecting the edits made on my own node.
+
 ## Current implementation
 
 - Shared operation log in .obsidian/shared-vault/operation-cache/

@@ -10,8 +10,19 @@ import {
 import { SharedVaultEngine } from "./shared-vault-engine";
 import { SharedVaultNodeRegistryModal } from "./shared-vault-modals";
 import { SharedVaultSettingTab } from "./shared-vault-settings-tab";
-import type { NodeListEntry, NodeRegistryEntry, OperationFile, SharedVaultData, SharedVaultSettings } from "./shared-vault-types";
-import { hashText, safeMkdir } from "./shared-vault-utils";
+import type { CacheState, CachedDocument, NodeListEntry, NodeRegistryEntry, OperationFile, SharedVaultData, SharedVaultSettings } from "./shared-vault-types";
+import { base64ToText, hashText, safeMkdir } from "./shared-vault-utils";
+
+interface LegacyCacheCandidate {
+  root: string;
+  statePath: string;
+  docRoot: string;
+  hasState: boolean;
+  hasDocs: boolean;
+  processedCount: number;
+  docCount: number;
+  alignedDocCount: number;
+}
 
 export default class SharedVaultPlugin extends Plugin {
   settings: SharedVaultSettings = DEFAULT_SETTINGS;
@@ -239,38 +250,156 @@ export default class SharedVaultPlugin extends Plugin {
 
     const modernStatePath = normalizePath(`${nodeCacheRoot}/state.json`);
     const modernDocRoot = normalizePath(`${nodeCacheRoot}/docs`);
-    if (await adapter.exists(modernStatePath) || await adapter.exists(modernDocRoot)) {
+    const listed = await adapter.list(nodeCacheRoot);
+    const legacyCandidates = await this.readLegacyCacheCandidates(listed.folders.sort());
+    if (legacyCandidates.length === 0) {
       return;
     }
 
-    const listed = await adapter.list(nodeCacheRoot);
-    const legacyRoots = listed.folders.sort();
+    const hasModernState = await adapter.exists(modernStatePath);
+    const hasModernDocs = await adapter.exists(modernDocRoot);
+    const modernCandidate = await this.inspectCacheCandidate(nodeCacheRoot);
+    const selectedLegacy = this.selectPreferredCacheCandidate(legacyCandidates);
 
-    for (const legacyRoot of legacyRoots) {
-      const legacyStatePath = normalizePath(`${legacyRoot}/state.json`);
-      const legacyDocRoot = normalizePath(`${legacyRoot}/docs`);
-      const hasLegacyState = await adapter.exists(legacyStatePath);
-      const hasLegacyDocs = await adapter.exists(legacyDocRoot);
+    const shouldRecoverModernCache = (hasModernState || hasModernDocs)
+      && modernCandidate.alignedDocCount === 0
+      && selectedLegacy.alignedDocCount > 0;
 
-      if (!hasLegacyState && !hasLegacyDocs) {
+    if (!shouldRecoverModernCache && (hasModernState || hasModernDocs)) {
+      return;
+    }
+
+    if (selectedLegacy.hasDocs) {
+      if (hasModernDocs) {
+        await adapter.rmdir(modernDocRoot, true);
+      }
+
+      await adapter.rename(selectedLegacy.docRoot, modernDocRoot);
+    }
+
+    const mergedState = await this.mergeProcessedState([
+      ...(hasModernState ? [modernCandidate] : []),
+      ...legacyCandidates
+    ]);
+
+    if (mergedState.processedOpIds.length > 0) {
+      await adapter.write(modernStatePath, JSON.stringify(mergedState, null, 2));
+    }
+
+    if (selectedLegacy.hasState && await adapter.exists(selectedLegacy.statePath)) {
+      await adapter.remove(selectedLegacy.statePath);
+    }
+
+    for (const candidate of legacyCandidates) {
+      const rest = await adapter.list(candidate.root);
+      if (rest.files.length === 0 && rest.folders.length === 0) {
+        await adapter.rmdir(candidate.root, false);
+      }
+    }
+  }
+
+  private async readLegacyCacheCandidates(roots: string[]): Promise<LegacyCacheCandidate[]> {
+    const candidates: LegacyCacheCandidate[] = [];
+
+    for (const root of roots) {
+      const candidate = await this.inspectCacheCandidate(root);
+      if (!candidate.hasState && !candidate.hasDocs) {
         continue;
       }
 
-      if (hasLegacyState && !(await adapter.exists(modernStatePath))) {
-        await adapter.rename(legacyStatePath, modernStatePath);
-      }
-
-      if (hasLegacyDocs && !(await adapter.exists(modernDocRoot))) {
-        await adapter.rename(legacyDocRoot, modernDocRoot);
-      }
-
-      const rest = await adapter.list(legacyRoot);
-      if (rest.files.length === 0 && rest.folders.length === 0) {
-        await adapter.rmdir(legacyRoot, false);
-      }
-
-      return;
+      candidates.push(candidate);
     }
+
+    return candidates;
+  }
+
+  private async inspectCacheCandidate(root: string): Promise<LegacyCacheCandidate> {
+    const adapter = this.app.vault.adapter;
+    const statePath = normalizePath(`${root}/state.json`);
+    const docRoot = normalizePath(`${root}/docs`);
+    const hasState = await adapter.exists(statePath);
+    const hasDocs = await adapter.exists(docRoot);
+
+    let processedCount = 0;
+    if (hasState) {
+      const raw = await adapter.read(statePath);
+      const state = JSON.parse(raw) as CacheState;
+      processedCount = state.processedOpIds.length;
+    }
+
+    let docCount = 0;
+    let alignedDocCount = 0;
+    if (hasDocs) {
+      const listed = await adapter.list(docRoot);
+      const docPaths = listed.files.filter((path) => path.endsWith(".json")).sort();
+      docCount = docPaths.length;
+
+      for (const path of docPaths) {
+        const raw = await adapter.read(path);
+        const document = JSON.parse(raw) as CachedDocument;
+        if (!document.vaultTextBase64) {
+          continue;
+        }
+
+        const file = this.app.vault.getAbstractFileByPath(document.path);
+        if (!(file instanceof TFile)) {
+          continue;
+        }
+
+        if (base64ToText(document.vaultTextBase64) === await this.app.vault.read(file)) {
+          alignedDocCount += 1;
+        }
+      }
+    }
+
+    return {
+      root,
+      statePath,
+      docRoot,
+      hasState,
+      hasDocs,
+      processedCount,
+      docCount,
+      alignedDocCount
+    };
+  }
+
+  private selectPreferredCacheCandidate(candidates: LegacyCacheCandidate[]): LegacyCacheCandidate {
+    return candidates.slice().sort((left, right) => {
+      if (right.alignedDocCount !== left.alignedDocCount) {
+        return right.alignedDocCount - left.alignedDocCount;
+      }
+
+      if (right.processedCount !== left.processedCount) {
+        return right.processedCount - left.processedCount;
+      }
+
+      if (right.docCount !== left.docCount) {
+        return right.docCount - left.docCount;
+      }
+
+      return left.root.localeCompare(right.root);
+    })[0];
+  }
+
+  private async mergeProcessedState(candidates: LegacyCacheCandidate[]): Promise<CacheState> {
+    const processedOpIds = new Set<string>();
+
+    for (const candidate of candidates) {
+      if (!candidate.hasState || !(await this.app.vault.adapter.exists(candidate.statePath))) {
+        continue;
+      }
+
+      const raw = await this.app.vault.adapter.read(candidate.statePath);
+      const state = JSON.parse(raw) as CacheState;
+      for (const operationId of state.processedOpIds) {
+        processedOpIds.add(operationId);
+      }
+    }
+
+    return {
+      processedOpIds: Array.from(processedOpIds).sort().slice(-5000)
+    };
   }
 
   private async prepareNodeParticipation(): Promise<void> {
